@@ -1,6 +1,7 @@
 package com.rajatgoyal.popularmovies_stage1;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.AsyncTask;
@@ -11,7 +12,8 @@ import android.support.v7.widget.RecyclerView;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.widget.Toast;
+import android.view.View;
+import android.widget.ProgressBar;
 
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
@@ -25,25 +27,25 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements MoviesAdapter.MovieItemClickListener {
 
     private RecyclerView rv_movies;
     private MoviesAdapter mMoviesAdapter;
 
+    private ProgressBar mProgressLoading;
+
     private static final String POPULAR_MOVIES_URL = "https://api.themoviedb.org/3/movie/popular";
     private static final String TOP_RATED_MOVIES_URL = "https://api.themoviedb.org/3/movie/top_rated";
 
-    private static final String API_KEY = "PLACE_YOUR_API_KEY_HERE";
     private static final String lang = "en-US";
     private static final int page = 1;
 
-    final static String API_PARAM = "api_key";
-    final static String LANG_PARAM = "language";
-    final static String PAGE_PARAM = "page";
+    private final static String API_PARAM = "api_key";
+    private final static String LANG_PARAM = "language";
+    private final static String PAGE_PARAM = "page";
 
     public static final String TAG = "MainActivity";
 
@@ -51,7 +53,7 @@ public class MainActivity extends AppCompatActivity {
     private static int POPULAR_OR_TOP_RATED;
 
     private static SharedPreferences sharedPref;
-    private static SharedPreferences.Editor editor;
+
     public static final String MY_PREFS = "popular";
 
     public static Movie[] moviesList;
@@ -61,18 +63,27 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // TODO(1) Check if any shared preference stored reagarding the sort order
         getChoice();
+
+        mProgressLoading = (ProgressBar) findViewById(R.id.pb_loading);
 
         rv_movies = (RecyclerView) findViewById(R.id.rv_movies);
 
         GridLayoutManager layoutManager = new GridLayoutManager(this, 2);
         rv_movies.setLayoutManager(layoutManager);
 
-        mMoviesAdapter = new MoviesAdapter();
+        mMoviesAdapter = new MoviesAdapter(this);
+        mMoviesAdapter.setMovieData(moviesList);
         rv_movies.setAdapter(mMoviesAdapter);
 
         loadMoviesData();
+    }
+
+    @Override
+    public void onClick(int id) {
+        Intent intent = new Intent(this, DisplayActivity.class);
+        intent.putExtra("id", id);
+        startActivity(intent);
     }
 
     public void getChoice() {
@@ -84,15 +95,28 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadMoviesData() {
+
+        showLoadingIndicator();
+
         URL moviesUrl = buildUrl();
         new MoviesFetchTask().execute(moviesUrl);
+    }
+
+    public void showLoadingIndicator() {
+        mProgressLoading.setVisibility(View.VISIBLE);
+        rv_movies.setVisibility(View.INVISIBLE);
+    }
+
+    public void showMoviesData() {
+        mProgressLoading.setVisibility(View.INVISIBLE);
+        rv_movies.setVisibility(View.VISIBLE);
     }
 
     public URL buildUrl() {
         String BASE_URL = (POPULAR_OR_TOP_RATED == 0) ? POPULAR_MOVIES_URL : TOP_RATED_MOVIES_URL;
 
         Uri builtUri = Uri.parse(BASE_URL).buildUpon()
-                .appendQueryParameter(API_PARAM, API_KEY)
+                .appendQueryParameter(API_PARAM, getString(R.string.api_key))
                 .appendQueryParameter(LANG_PARAM, lang)
                 .appendQueryParameter(PAGE_PARAM, String.valueOf(page))
                 .build();
@@ -133,22 +157,21 @@ public class MainActivity extends AppCompatActivity {
                                 try {
                                     JSONArray results = response.getJSONArray("results");
 
-                                    String title, description, poster_path;
-                                    double vote;
+                                    int id;
+                                    String poster_path;
 
                                     Movie[] movies = new Movie[results.length()];
 
                                     for (int i = 0; i < results.length(); i++) {
-                                        title = results.getJSONObject(i).getString("title");
-                                        description = results.getJSONObject(i).getString("overview");
+                                        id = results.getJSONObject(i).getInt("id");
                                         poster_path = results.getJSONObject(i).getString("poster_path");
-                                        vote = results.getJSONObject(i).getDouble("vote_average");
 
-                                        movies[i] = new Movie(title, description, poster_path, vote);
-//                                        Toast.makeText(MainActivity.this, title, Toast.LENGTH_SHORT).show();
+                                        movies[i] = new Movie(id, poster_path);
                                     }
 
                                     mMoviesAdapter.setMovieData(movies);
+                                    mMoviesAdapter.notifyDataSetChanged();
+                                    showMoviesData();
 
                                 } catch (JSONException e) {
                                     e.printStackTrace();
@@ -165,6 +188,7 @@ public class MainActivity extends AppCompatActivity {
                 );
 
                 mRequestQueue.add(jsonObjectRequest);
+
             } catch (Exception e) {
                 Log.d(TAG, "doInBackground: error: " + e.getMessage());
             }
@@ -176,6 +200,16 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.main, menu);
+
+        MenuItem popularMenuItem = menu.findItem(R.id.action_popular);
+        MenuItem topRatedMenuItem = menu.findItem(R.id.action_top_rated);
+
+        if (POPULAR_OR_TOP_RATED == 0) {
+            popularMenuItem.setChecked(true);
+        } else {
+            topRatedMenuItem.setChecked(true);
+        }
+
         return true;
     }
 
@@ -186,10 +220,12 @@ public class MainActivity extends AppCompatActivity {
         int earlier = POPULAR_OR_TOP_RATED;
 
         if (id == R.id.action_popular) {
+            item.setChecked(true);
             POPULAR_OR_TOP_RATED = 0;
         }
 
         if (id == R.id.action_top_rated) {
+            item.setChecked(true);
             POPULAR_OR_TOP_RATED = 1;
         }
 
@@ -201,14 +237,11 @@ public class MainActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
-    // TODO (2) Update according to POPULAR_OR_TOP_RATED
     public void updateSharedPref() {
-        editor = sharedPref.edit();
+        SharedPreferences.Editor editor = sharedPref.edit();
         editor.putInt("choice", POPULAR_OR_TOP_RATED);
-        editor.commit();
+        editor.apply();
     }
-
-    // TODO (3) Store data on orientation change
 
     @Override
     protected void onPause() {
@@ -222,7 +255,4 @@ public class MainActivity extends AppCompatActivity {
         mMoviesAdapter.setMovieData(moviesList);
         mMoviesAdapter.notifyDataSetChanged();
     }
-
-    // TODO (4) OnItemClickListener
-    // TODO (5) New layout file showing detail of the movie
 }
